@@ -2,6 +2,10 @@
 
 A 8x8 minecraft inspired sandbox written in rust and bevy using dead simple image driven modding...
 
+## Default Game
+
+The base game is bare bone by default (juste the gride block 0 is added by default) because your are meant to add blocks yourself via the help of assetpacks (.zip containing a list of premade block)
+
 ## Dead Simple Modding
 
 To add custom blocks without changing the code:
