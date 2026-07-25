@@ -22,11 +22,6 @@ fn main() {
                 ..default()
             })
         )
-        // Doit être inséré APRES DefaultPlugins, sinon le plugin de rendu
-        // écrase cette valeur avec son propre défaut (Sample4).
-        // Off = gain GPU direct (moins de fill-rate) et cohérent avec le
-        // rendu "pixel" (ImagePlugin::default_nearest()) déjà utilisé.
-        // Si tu préfères les bords plus lisses, remets Msaa::Sample4.
         .insert_resource(Msaa::Off)
         .add_plugins(FrameTimeDiagnosticsPlugin)
         .init_resource::<WorldGrid>()
@@ -66,11 +61,6 @@ struct BlockMaterials {
     handles: HashMap<u32, Handle<StandardMaterial>>,
 }
 
-/// Handle de mesh partagé pour TOUS les blocs (sol + blocs posés en jeu).
-/// Avant, poser un bloc appelait `meshes.add(..)` et créait un nouveau mesh
-/// à chaque fois : ça gaspille de la mémoire GPU pour rien ET empêche le
-/// renderer de regrouper (batcher) ce bloc avec les autres, puisque le
-/// batching de Bevy se fait sur des handles identiques.
 #[derive(Resource)]
 struct BlockMesh(Handle<Mesh>);
 
@@ -190,18 +180,11 @@ fn setup(
 fn update_fps(
     diagnostics: Res<DiagnosticsStore>,
     mut query: Query<&mut Text, With<FpsText>>,
-    // État privé à ce système, conservé d'une frame à l'autre (pas besoin
-    // d'une Resource globale pour ça).
     mut last_shown: Local<i32>,
 ) {
     let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) else { return; };
     let Some(value) = fps.smoothed() else { return; };
     let rounded = value.round() as i32;
-
-    // Le texte affiché est arrondi à l'entier : il ne change donc réellement
-    // que rarement. Sans ce garde-fou, Bevy réallouait une String ET
-    // relançait le layout de texte (coûteux) à CHAQUE frame, même quand le
-    // nombre affiché était strictement identique.
     if rounded != *last_shown {
         *last_shown = rounded;
         for mut text in &mut query {
@@ -371,18 +354,8 @@ fn update_ui(
     }
 }
 
-/// Parcourt la grille de voxels le long d'un rayon en avançant exactement
-/// une case à la fois (algorithme DDA d'Amanatides & Woo), au lieu
-/// d'échantillonner tous les 0.05 unité. Pour une portée de 6 unités, ça
-/// remplace ~120 itérations (+ lookup HashMap à chaque fois, À CHAQUE FRAME)
-/// par ~10-12 au pire cas, tout en étant géométriquement exact.
-///
-/// Retourne (voxel touché, voxel juste avant) — le second sert à savoir où
-/// poser un nouveau bloc.
 fn raycast_voxels(origin: Vec3, dir: Vec3, max_distance: f32, grid: &WorldGrid) -> Option<(IVec3, IVec3)> {
-    // Les blocs sont centrés sur des coordonnées entières (span [i-0.5, i+0.5)).
-    // On décale de 0.5 pour retomber sur une grille classique [i, i+1) et
-    // pouvoir utiliser floor() directement.
+
     let origin = origin + Vec3::splat(0.5);
     let dir = dir.normalize();
 
