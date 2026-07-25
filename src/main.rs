@@ -201,7 +201,6 @@ fn setup(
         ).with_style(Style { position_type: PositionType::Absolute, top: Val::Px(15.0), left: Val::Px(15.0), ..default() })
     );
 
-    // FPS en haut à droite
     commands.spawn((
         TextBundle::from_section(
             "FPS: 0",
@@ -210,7 +209,6 @@ fn setup(
         FpsText,
     ));
 
-    // Coordonnées en dessous des FPS (en haut à droite)
     commands.spawn((
         TextBundle::from_section(
             "XYZ: 0.0 / 3.0 / 0.0",
