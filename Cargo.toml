@@ -1,0 +1,13 @@
+[package]
+name = "Alloy-Project"
+version = "0.0.4"
+edition = "2021"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[dependencies]
+bevy = { version = "0.14", features = ["dynamic_linking"] }
