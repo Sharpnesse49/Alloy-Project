@@ -1,5 +1,8 @@
 # Alloy-Project
 
+<img width="1330" height="807" alt="image" src="https://github.com/user-attachments/assets/82a3fe38-0540-4485-96d5-ec3ee8155e1d" />
+
+
 A 8x8 minecraft inspired sandbox written in rust and bevy using dead simple image driven modding...
 
 ## Default Game
