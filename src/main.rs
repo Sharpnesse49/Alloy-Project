@@ -22,6 +22,12 @@ fn main() {
                 ..default()
             })
         )
+        // Doit être inséré APRES DefaultPlugins, sinon le plugin de rendu
+        // écrase cette valeur avec son propre défaut (Sample4).
+        // Off = gain GPU direct (moins de fill-rate) et cohérent avec le
+        // rendu "pixel" (ImagePlugin::default_nearest()) déjà utilisé.
+        // Si tu préfères les bords plus lisses, remets Msaa::Sample4.
+        .insert_resource(Msaa::Off)
         .add_plugins(FrameTimeDiagnosticsPlugin)
         .init_resource::<WorldGrid>()
         .init_resource::<BlockMaterials>()
@@ -59,6 +65,14 @@ struct WorldGrid {
 struct BlockMaterials {
     handles: HashMap<u32, Handle<StandardMaterial>>,
 }
+
+/// Handle de mesh partagé pour TOUS les blocs (sol + blocs posés en jeu).
+/// Avant, poser un bloc appelait `meshes.add(..)` et créait un nouveau mesh
+/// à chaque fois : ça gaspille de la mémoire GPU pour rien ET empêche le
+/// renderer de regrouper (batcher) ce bloc avec les autres, puisque le
+/// batching de Bevy se fait sur des handles identiques.
+#[derive(Resource)]
+struct BlockMesh(Handle<Mesh>);
 
 #[derive(Resource)]
 struct CurrentBlock {
@@ -107,6 +121,7 @@ fn setup(
     }
 
     let box_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
+    commands.insert_resource(BlockMesh(box_mesh.clone()));
 
     if let Some(ground_material) = block_materials.handles.get(&0) {
         for x in -15..15 {
@@ -172,12 +187,25 @@ fn setup(
     ));
 }
 
-fn update_fps(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, With<FpsText>>) {
-    if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
-        if let Some(value) = fps.smoothed() {
-            for mut text in &mut query {
-                text.sections[0].value = format!("FPS: {:.0}", value);
-            }
+fn update_fps(
+    diagnostics: Res<DiagnosticsStore>,
+    mut query: Query<&mut Text, With<FpsText>>,
+    // État privé à ce système, conservé d'une frame à l'autre (pas besoin
+    // d'une Resource globale pour ça).
+    mut last_shown: Local<i32>,
+) {
+    let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) else { return; };
+    let Some(value) = fps.smoothed() else { return; };
+    let rounded = value.round() as i32;
+
+    // Le texte affiché est arrondi à l'entier : il ne change donc réellement
+    // que rarement. Sans ce garde-fou, Bevy réallouait une String ET
+    // relançait le layout de texte (coûteux) à CHAQUE frame, même quand le
+    // nombre affiché était strictement identique.
+    if rounded != *last_shown {
+        *last_shown = rounded;
+        for mut text in &mut query {
+            text.sections[0].value = format!("FPS: {}", rounded);
         }
     }
 }
@@ -343,6 +371,66 @@ fn update_ui(
     }
 }
 
+/// Parcourt la grille de voxels le long d'un rayon en avançant exactement
+/// une case à la fois (algorithme DDA d'Amanatides & Woo), au lieu
+/// d'échantillonner tous les 0.05 unité. Pour une portée de 6 unités, ça
+/// remplace ~120 itérations (+ lookup HashMap à chaque fois, À CHAQUE FRAME)
+/// par ~10-12 au pire cas, tout en étant géométriquement exact.
+///
+/// Retourne (voxel touché, voxel juste avant) — le second sert à savoir où
+/// poser un nouveau bloc.
+fn raycast_voxels(origin: Vec3, dir: Vec3, max_distance: f32, grid: &WorldGrid) -> Option<(IVec3, IVec3)> {
+    // Les blocs sont centrés sur des coordonnées entières (span [i-0.5, i+0.5)).
+    // On décale de 0.5 pour retomber sur une grille classique [i, i+1) et
+    // pouvoir utiliser floor() directement.
+    let origin = origin + Vec3::splat(0.5);
+    let dir = dir.normalize();
+
+    let mut voxel = origin.floor().as_ivec3();
+    let mut prev_voxel = voxel;
+
+    let step = IVec3::new(
+        if dir.x > 0.0 { 1 } else { -1 },
+        if dir.y > 0.0 { 1 } else { -1 },
+        if dir.z > 0.0 { 1 } else { -1 },
+    );
+
+    let t_delta = Vec3::new(
+        if dir.x != 0.0 { (1.0 / dir.x).abs() } else { f32::INFINITY },
+        if dir.y != 0.0 { (1.0 / dir.y).abs() } else { f32::INFINITY },
+        if dir.z != 0.0 { (1.0 / dir.z).abs() } else { f32::INFINITY },
+    );
+
+    let mut t_max = Vec3::new(
+        if dir.x != 0.0 { ((voxel.x as f32 + if step.x > 0 { 1.0 } else { 0.0 }) - origin.x) / dir.x } else { f32::INFINITY },
+        if dir.y != 0.0 { ((voxel.y as f32 + if step.y > 0 { 1.0 } else { 0.0 }) - origin.y) / dir.y } else { f32::INFINITY },
+        if dir.z != 0.0 { ((voxel.z as f32 + if step.z > 0 { 1.0 } else { 0.0 }) - origin.z) / dir.z } else { f32::INFINITY },
+    );
+
+    let mut travelled = 0.0_f32;
+    while travelled <= max_distance {
+        if grid.blocks.contains_key(&voxel) {
+            return Some((voxel, prev_voxel));
+        }
+        prev_voxel = voxel;
+
+        if t_max.x < t_max.y && t_max.x < t_max.z {
+            voxel.x += step.x;
+            travelled = t_max.x;
+            t_max.x += t_delta.x;
+        } else if t_max.y < t_max.z {
+            voxel.y += step.y;
+            travelled = t_max.y;
+            t_max.y += t_delta.y;
+        } else {
+            voxel.z += step.z;
+            travelled = t_max.z;
+            t_max.z += t_delta.z;
+        }
+    }
+    None
+}
+
 fn block_interactions_and_outline(
     mut commands: Commands,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -350,7 +438,7 @@ fn block_interactions_and_outline(
     player_query: Query<&Transform, With<Player>>,
     cam_query: Query<&GlobalTransform, With<PlayerCamera>>,
     mut grid: ResMut<WorldGrid>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    block_mesh: Res<BlockMesh>,
     block_materials: Res<BlockMaterials>,
     current_block: Res<CurrentBlock>,
     mut gizmos: Gizmos,
@@ -360,52 +448,40 @@ fn block_interactions_and_outline(
 
     let player_feet = player_query.single().translation;
     let cam_transform = cam_query.single().compute_transform();
-    
-    let start_pos = cam_transform.translation;
+
     let forward = cam_transform.rotation * Vec3::NEG_Z;
-    let step_size = 0.05;
     let max_distance = 6.0;
-    
+
     let break_block = mouse.just_pressed(MouseButton::Left);
     let place_block = mouse.just_pressed(MouseButton::Right);
-    
-    let mut current_pos = start_pos;
-    let mut prev_voxel = current_pos.round().as_ivec3();
 
-    for _ in 0..((max_distance / step_size) as i32) {
-        current_pos += forward * step_size;
-        let current_voxel = current_pos.round().as_ivec3();
+    let Some((hit_voxel, prev_voxel)) = raycast_voxels(cam_transform.translation, forward, max_distance, &grid) else {
+        return;
+    };
 
-        if grid.blocks.contains_key(&current_voxel) {
-            
-            gizmos.cuboid(
-                Transform::from_translation(current_voxel.as_vec3()).with_scale(Vec3::splat(1.02)),
-                Color::WHITE,
-            );
+    gizmos.cuboid(
+        Transform::from_translation(hit_voxel.as_vec3()).with_scale(Vec3::splat(1.02)),
+        Color::WHITE,
+    );
 
-            if break_block {
-                if let Some(entity) = grid.blocks.remove(&current_voxel) {
-                    commands.entity(entity).despawn();
-                }
-            } else if place_block && !grid.blocks.contains_key(&prev_voxel) {
-                if !intersects_player(prev_voxel, player_feet) {
-                    let box_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
-                    if let Some(material) = block_materials.handles.get(&current_block.id) {
-                        let new_entity = commands.spawn((
-                            PbrBundle {
-                                mesh: box_mesh,
-                                material: material.clone(),
-                                transform: Transform::from_translation(prev_voxel.as_vec3()),
-                                ..default()
-                            },
-                            Block,
-                        )).id();
-                        grid.blocks.insert(prev_voxel, new_entity);
-                    }
-                }
-            }
-            break;
+    if break_block {
+        if let Some(entity) = grid.blocks.remove(&hit_voxel) {
+            commands.entity(entity).despawn();
         }
-        prev_voxel = current_voxel;
+    } else if place_block && !grid.blocks.contains_key(&prev_voxel) {
+        if !intersects_player(prev_voxel, player_feet) {
+            if let Some(material) = block_materials.handles.get(&current_block.id) {
+                let new_entity = commands.spawn((
+                    PbrBundle {
+                        mesh: block_mesh.0.clone(),
+                        material: material.clone(),
+                        transform: Transform::from_translation(prev_voxel.as_vec3()),
+                        ..default()
+                    },
+                    Block,
+                )).id();
+                grid.blocks.insert(prev_voxel, new_entity);
+            }
+        }
     }
 }
