@@ -22,8 +22,9 @@ To add custom blocks without changing the code:
 
 ## Console Commands
 
-If you run the game inside a terminal you have acces to commands :
-(this will be implemented directly into the game later.)
+If you run the game inside a terminal you have acces to commands
+
+(this will be implemented directly into the game later.) :
 
 - `/fly` - Enable flight (Space to go up, Shift to go down)
 - `/fall` - Disable flight and gravity
