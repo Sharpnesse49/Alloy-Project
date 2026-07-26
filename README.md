@@ -9,6 +9,10 @@ A 8x8 minecraft inspired sandbox written in rust and bevy using dead simple imag
 
 The base game is bare bone by default (juste the gride block 0 is added by default) because your are meant to add blocks yourself via the help of assetpacks (.zip containing a list of premade block)
 
+## Assetpacks
+
+I have already made an assetpack for ap you can consider it as a "official" blocks pack for the game. You can download it in the release tab.
+
 ## Dead Simple Modding
 
 To add custom blocks without changing the code:
