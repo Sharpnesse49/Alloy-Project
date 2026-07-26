@@ -38,3 +38,9 @@ If you run the game inside a terminal you have acces to commands :
 ## The Grid System (save/load/list)
 
 The world uses a sparse grid (HashMap) instead of a heavy 3D array. Each block is stored using its exact 3D coordinates and linked to a game entity. This means only placed blocks use memory, performance stays high, and saving or loading the world to a text file is simple.
+
+#### Thanks to Rust and Bevy
+<img width="482" height="240" alt="image" src="https://github.com/user-attachments/assets/d16f6906-784e-4bcb-86a9-ada6606abcba" />
+
+<img width="561" height="143" alt="image" src="https://github.com/user-attachments/assets/ff90517d-ebad-4624-84e1-dbad6e357e17" />
+
