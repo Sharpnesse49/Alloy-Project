@@ -17,8 +17,10 @@ I have already made an assetpack for ap you can consider it as a "official" bloc
 
 To add custom blocks without changing the code:
 1. Place PNG images into the `assets/` folder.
-2. Name them sequentially (`1.png`, `2.png`, etc.).
-3. The game automatically detects them. Use the mouse scroll wheel in-game to select your blocks.
+2. Name them how you want (`stone.png`, `sand.png`, etc.).
+3. The game automatically detects them and add them. Use the mouse scroll wheel in-game to select your blocks.
+
+stone.png (image) -> stone (block ingame) 
 
 ## Console Commands
 
